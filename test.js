@@ -1,0 +1,409 @@
+const mineflayer = require('mineflayer')
+const { Vec3 } = require('vec3')
+const { pathfinder, Movements, goals } = require('mineflayer-pathfinder')
+
+function log(level, module, message) {
+  const time = new Date().toTimeString().split(' ')[0]
+  console.log(`[${time}] [${level}] [${module}] ${message}`)
+}
+
+const username = process.argv[2] || 'biru44zika'
+
+const bot = mineflayer.createBot({
+  //host: 'localhost',
+  host: 'olimpo.craftlandia.com.br',
+  username: username,
+  auth: 'offline',
+  //port: 51744,
+})
+
+bot.loadPlugin(pathfinder)
+
+bot.once('spawn', async () => {
+  const movements = new Movements(bot)
+
+  movements.allowFreeMotion = true
+  movements.canDig = true
+  movements.maxDropDown = 13
+  movements.allowSprinting = true
+  movements.allow1by1towers = false
+  movements.allowParkour = false
+
+  for (const block of Object.values(bot.registry.blocksByName)) {
+    if (block.name.includes('leaves')) {
+        movements.blocksToAvoid.add(block.id)
+    }
+  }
+
+  bot.pathfinder.setMovements(movements)
+  bot.pathfinder.thinkTimeout = 13000
+
+  await bot.waitForTicks(20 * 5) // espera 5 segundos (20 ticks/s)
+  bot.chat('/register ball1234')
+  bot.chat('/login ball1234')
+  log('INFO', 'auth', 'logged in')
+  await bot.waitForTicks(13)
+  bot.chat('/menuloja off')
+  await bot.waitForTicks(20 * 5)
+  bot.chat('/tell BallKnower hello boss')
+})
+
+async function goTo(x, y, z) {
+  const goal = new goals.GoalBlock(x, y, z)
+  await bot.pathfinder.goto(goal)
+  log('INFO', 'movement', `arrived at (${x}, ${y}, ${z})`)
+}
+
+let lastTree = null;
+function locateNearestTree(maxDistance = 32) {
+  const block = bot.findBlock({
+    maxDistance,
+    matching: (b) => {
+
+      return b.name.includes('log') && 
+             !(lastTree && b.position.x === lastTree.x && b.position.z === lastTree.z);
+    }
+  });
+
+  if (!block) return null; 
+
+  let pos = block.position;
+
+  while (bot.blockAt(pos.offset(0, -1, 0))?.name.includes('log')) {
+    pos = pos.offset(0, -1, 0);
+  }
+
+  lastTree = { x: pos.x, z: pos.z };
+
+  return bot.blockAt(pos);
+}
+
+async function breakTree(x, y, z) {
+  let currentY = y
+
+  while (true) {
+    const block = bot.blockAt(new Vec3(x, currentY, z))
+
+    if (!block || !block.name.includes('log')) {
+      log('INFO', 'chop', 'no more logs found, stopping')
+      break
+    }
+
+    await bot.lookAt(block.position.offset(0.5, 0.5, 0.5))
+
+    log('INFO', 'chop', `digging log at y=${currentY}`)
+    await bot.dig(block)
+
+    currentY++
+  }
+}
+
+function logPosition() {
+  const pos = bot.entity.position
+  log('INFO', 'movement', `x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`)
+}
+
+async function buy(x, y, z) {
+  const block = bot.blockAt(new Vec3(x, y, z))
+  if (!block) {
+    log('WARN', 'shop', 'no block found at that position')
+    return
+  }
+
+  await bot.lookAt(block.position.offset(0.5, 0.5, 0.5))
+  await bot.activateBlock(block)
+  log('INFO', 'shop', `buy click on ${block.name} at ${block.position}`)
+}
+
+async function clickSell(x, y, z) {
+  const block = bot.blockAt(new Vec3(x, y, z))
+  if (!block) {
+    log('WARN', 'shop', 'no block found at that position')
+    return
+  }
+
+  await bot.lookAt(block.position.offset(0.5, 0.5, 0.5))
+  await bot.dig(block)
+  log('INFO', 'shop', `sell click (dig) on ${block.name} at ${block.position}`)
+}
+
+async function sell() {
+  bot.chat('/warp loja')
+  await bot.waitForTicks(20 * 10)
+
+  bot.chat('/menuloja off')
+
+  await goTo(-677, 6, 728)
+  await goTo(-677, 6, 663)
+  log('INFO', 'shop', 'checkpoint AMENO reached')
+
+  await goTo(-644, 6, 653)
+  log('INFO', 'shop', 'arrived at sell point')
+
+  await clickSell(-644, 7, 651)
+  await clickSell(-644, 7, 652)
+  await clickSell(-644, 7, 653)
+  await clickSell(-644, 7, 654)
+  await clickSell(-644, 7, 655)
+  await clickSell(-644, 7, 656)
+
+  await bot.waitForTicks(20 * 6)
+  log('INFO', 'shop', 'sell complete')
+}
+
+async function buyFood() {
+  bot.chat('/warp loja')
+  await bot.waitForTicks(20 * 10)
+
+  bot.chat('/menuloja off')
+
+  await goTo(-677, 6, 728)
+  await goTo(-677, 6, 663)
+  log('INFO', 'shop', 'checkpoint AMENO2 reached')
+
+  await goTo(-662, 6, 605)
+  log('INFO', 'shop', 'arrived at food shop')
+
+  bot.setControlState('sneak', true);
+
+  await buy(-663, 7, 605)
+
+  bot.setControlState('sneak', false);
+
+  log('INFO', 'shop', 'food purchase complete')
+}
+
+async function chopTree() {
+  const tree = locateNearestTree()
+  if (!tree) {
+    log('WARN', 'chop', 'no tree found')
+    return
+  }
+
+  await goTo(tree.position.x, tree.position.y, tree.position.z)
+  await bot.waitForTicks(13)
+
+  await breakTree(tree.position.x, tree.position.y + 2, tree.position.z)
+}
+
+let balance = null
+
+function getBalance() {
+  return new Promise((resolve) => {
+    const listener = (jsonMsg) => {
+      const text = jsonMsg.toString()
+      const match = text.match(/Seu saldo atual: ([\d.,]+) Coins/)
+
+      if (match) {
+        balance = parseFloat(match[1].replace(',', ''))
+        bot.removeListener('message', listener)
+        resolve(balance)
+      }
+    }
+
+    bot.on('message', listener)
+    bot.chat('/money')
+
+    // safety timeout in case server never responds
+    setTimeout(() => {
+      bot.removeListener('message', listener)
+      resolve(balance)
+    }, 5000)
+  })
+}
+
+async function pay(username, amount){
+    bot.chat(`/money pay ${username} ${amount}`)
+    await bot.waitForTicks(15)
+    bot.chat(`/money pay ${username} ${amount}`)
+}
+
+async function setHome(name=""){
+    bot.chat('/sethome '+name)
+    await bot.waitForTicks(13)
+    bot.chat('/sethome '+name)
+}
+
+async function goHome(name=""){
+    bot.chat('/home '+name)
+    await bot.waitForTicks(20 * 10)
+}
+
+async function eat() {
+  const food = bot.inventory.items().find(item => item.name === 'cooked_beef');
+
+    if (!food) {
+        log('WARN', 'survival', 'no cooked_beef to eat')
+        return;
+    }
+
+    await bot.waitForTicks(20)
+    await bot.equip(food, 'hand');
+    await bot.consume(); 
+    await bot.waitForTicks(20)
+    const axe = bot.inventory.items().find(item => item.name === 'diamond_axe');
+    await bot.waitForTicks(20)
+    await bot.equip(axe, 'hand');
+}
+
+async function ensureFoodStock() {
+  const meatCount = bot.inventory.items()
+    .filter(item => item.name === 'cooked_beef')
+    .reduce((total, item) => total + item.count, 0)
+
+  if (meatCount < 1) {
+    log('WARN', 'survival', `meat count low: ${meatCount}`)
+    await setHome("tmp")
+    await bot.waitForTicks(13)
+    await buyFood()
+    await goHome("tmp")
+  }
+}
+
+async function ensureFed() {
+  if (bot.food < 15) {
+    log('WARN', 'survival', `food low: ${bot.food}`)
+    await eat()
+  }
+}
+
+function checkAxeSupply() {
+  const axeCount = bot.inventory.items()
+    .filter(item => item.name === 'diamond_axe')
+    .reduce((total, item) => total + item.count, 0)
+
+  if (axeCount < 1) {
+    log('WARN', 'inventory', `not enough axes: ${axeCount}/1`)
+  }
+}
+
+async function chopWithRetry() {
+  try {
+    await chopTree()
+  } catch (error) {
+    log('WARN', 'chop', 'retrying chop after failure')
+    await chopTree()
+  }
+}
+
+async function chopLoop(times) {
+  for (let i = 0; i < times; i++) {
+    await ensureFoodStock()
+    await ensureFed()
+    checkAxeSupply()
+    await chopWithRetry()
+
+    log('INFO', 'progress', `${i + 1}/${times}`)
+  }
+}
+
+async function runSequence(username, msg) {
+  const commands = msg.split(';').map(c => c.trim()).filter(Boolean)
+
+  for (const cmd of commands) {
+    log('INFO', 'command', `start: ${cmd}`)
+    try {
+      await runCommand(username, cmd)
+      log('INFO', 'command', `done: ${cmd}`)
+    } catch (err) {
+      log('ERROR', 'command', `failed: ${cmd} - ${err.message}`)
+    }
+  }
+}
+
+async function runCommand(username, msg) {
+  if (msg.includes('@call')) {
+    bot.chat(`/call ${username}`)
+  }
+
+  if (msg.includes('@treebreak')) {
+    var args = msg.replace('@treebreak', '').trim().split(/\s+/)
+    var x = parseFloat(args[0])
+    var y = parseFloat(args[1])
+    var z = parseFloat(args[2])
+    await breakTree(x, y, z)
+  }
+
+  if (msg.includes('@chat')) {
+    bot.chat(msg.replace('@chat ', ''))
+  }
+
+  if (msg.includes('@findtree')) {
+    const tree = locateNearestTree()
+    log('INFO', 'chop', tree ? `nearest tree at ${tree.position}` : 'no tree found')
+  }
+
+  if (msg.includes('@goto')) {
+    var args = msg.replace('@goto', '').trim().split(/\s+/)
+    var x = parseInt(args[0])
+    var y = parseInt(args[1])
+    var z = parseInt(args[2])
+    await goTo(x, y, z)
+  }
+
+  if (msg.includes('@position')) {
+    logPosition()
+  }
+
+  if (msg.includes('@pay')) {
+    var amount = msg.replace('@pay ', '')
+    await pay(username, amount)
+  }
+
+  if (msg.includes('@wait')) {
+    var ticks = msg.replace('@wait ', '')
+    await bot.waitForTicks(ticks)
+  }
+
+  if (msg.includes('@sethome')) {
+    await setHome()
+  }
+
+  if (msg.includes('@gohome')) {
+    await goHome()
+  }
+
+  if (msg.includes('@chop')) {
+    var args = msg.replace('@chop', '').trim().split(/\s+/)
+    var times = parseInt(args[0]) || 1
+    await chopLoop(times)
+  }
+
+  if (msg.includes('@sell')) {
+    await sell()
+  }
+
+  if (msg.includes('@buyfood')) {
+    await buyFood()
+  }
+
+  if (msg.includes('@balance')) {
+    const bal = await getBalance()
+    log('INFO', 'economy', `current balance: ${bal}`)
+  }
+}
+
+bot.on('message', async (jsonMsg) => {
+  const textMsg = jsonMsg.toString()
+  const match = textMsg.match(/^\(Mensagem de (\w+)\): (.+)$/)
+  if (match) {
+    const [, senderUsername, msg] = match
+    log('INFO', 'whisper', `${senderUsername}: ${msg}`)
+
+    await runSequence(senderUsername, msg)
+
+    return
+  }
+})
+
+process.stdin.on('data', async (data) => {
+  const msg = data.toString().trim()
+  if (!msg) return
+
+  log('INFO', 'stdin', msg)
+
+  await runSequence('orchestrator', msg)
+})
+
+bot.on('kicked', (reason) => log('ERROR', 'connection', reason))
+bot.on('error', (err) => log('ERROR', 'connection', err.message))

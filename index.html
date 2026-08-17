@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Bot Manager</title>
+  <style>
+    body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
+    input, button { font-family: monospace; font-size: 14px; padding: 6px; margin: 2px; }
+    button { cursor: pointer; }
+    table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+    td, th { border: 1px solid #444; padding: 8px; text-align: left; vertical-align: top; }
+    .running { color: #4f4; }
+    .stopped { color: #f44; }
+    #newBot { margin-bottom: 20px; }
+    .step { padding: 2px 6px; margin: 2px 0; border-radius: 3px; font-size: 12px; }
+    .not_started { color: #888; }
+    .in_progress { color: #fc4; background: #332a00; }
+    .done { color: #4f4; }
+    .failed { color: #f44; background: #330000; }
+  </style>
+</head>
+<body>
+  <h2>Bot Manager</h2>
+
+  <div id="newBot">
+    <input id="newName" placeholder="bot name">
+    <button onclick="createBot()">Create + Start</button>
+  </div>
+
+  <table id="botTable">
+    <thead>
+      <tr><th>Name</th><th>PID</th><th>Status</th><th>Actions</th><th>Command</th><th>Job</th></tr>
+    </thead>
+    <tbody id="botRows"></tbody>
+  </table>
+
+<script>
+async function api(url, options) {
+  const res = await fetch(url, options)
+  return res.json()
+}
+
+async function refresh() {
+  const bots = await api('/bots')
+  const rows = document.getElementById('botRows')
+  rows.innerHTML = ''
+
+  bots.forEach(bot => {
+    const tr = document.createElement('tr')
+
+    const jobHtml = bot.job
+      ? bot.job.steps.map(s => {
+          const progress = s.progress ? ` (${s.progress.current}/${s.progress.total})` : ''
+          const error = s.error ? ` - ${s.error}` : ''
+          return `<div class="step ${s.status}">${s.cmd}${progress} — ${s.status}${error}</div>`
+        }).join('')
+      : '<span style="color:#666">no job yet</span>'
+
+    tr.innerHTML = `
+      <td>${bot.name}</td>
+      <td>${bot.pid}</td>
+      <td class="${bot.status}">${bot.status}</td>
+      <td>
+        <button onclick="stopBot('${bot.name}')">Stop</button>
+        <button onclick="restartBot('${bot.name}')">Restart</button>
+      </td>
+      <td>
+        <input id="cmd-${bot.name}" placeholder="@chop 10;@sell" size="25">
+        <button onclick="sendCommand('${bot.name}')">Send</button>
+      </td>
+      <td>${jobHtml}</td>
+    `
+    rows.appendChild(tr)
+  })
+}
+
+async function createBot() {
+  const name = document.getElementById('newName').value.trim()
+  if (!name) return
+  await api(`/bots/${name}/start`, { method: 'POST' })
+  document.getElementById('newName').value = ''
+  refresh()
+}
+
+async function stopBot(name) {
+  await api(`/bots/${name}/stop`, { method: 'POST' })
+  refresh()
+}
+
+async function restartBot(name) {
+  await api(`/bots/${name}/restart`, { method: 'POST' })
+  refresh()
+}
+
+async function sendCommand(name) {
+  const input = document.getElementById(`cmd-${name}`)
+  const cmd = input.value.trim()
+  if (!cmd) return
+  await api(`/bots/${name}/command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd })
+  })
+  input.value = ''
+}
+
+refresh()
+setInterval(refresh, 15000)
+</script>
+</body>
+</html>
