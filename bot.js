@@ -151,6 +151,30 @@ async function sell() {
   log('INFO', 'shop', 'sell complete')
 }
 
+async function buyDiamond() {
+  bot.chat('/warp loja')
+  await bot.waitForTicks(20 * 10)
+
+  bot.chat('/menuloja off')
+
+  await goTo(-677, 6, 728)
+  await goTo(-677, 6, 663)
+  await goTo(-700, 6, 639)
+  await goTo(-703, 6, 627)
+  log('INFO', 'shop', 'checkpoint AMENO3 reached')
+
+  await goTo(-700, 6, 607)
+  log('INFO', 'shop', 'arrived at diamond shop')
+
+  bot.setControlState('sneak', true);
+
+  await buy(-700, 7, 605)
+
+  bot.setControlState('sneak', false);
+
+  log('INFO', 'shop', 'diamond purchase complete')
+}
+
 async function buyFood() {
   bot.chat('/warp loja')
   await bot.waitForTicks(20 * 10)
@@ -246,6 +270,20 @@ async function eat() {
     await bot.equip(axe, 'hand');
 }
 
+async function ensureDiamondstock() {
+  const diamondCount = bot.inventory.items()
+    .filter(item => item.name === 'diamond')
+    .reduce((total, item) => total + item.count, 0)
+
+  if (diamondCount < 1) {
+    log('WARN', 'diamonds', `diamonds count low: ${diamondCount}`)
+    await setHome("tmp")
+    await bot.waitForTicks(13)
+    await buyDiamond()
+    await goHome("tmp")
+  }
+}
+
 async function ensureFoodStock() {
   const meatCount = bot.inventory.items()
     .filter(item => item.name === 'cooked_beef')
@@ -267,13 +305,14 @@ async function ensureFed() {
   }
 }
 
-function checkAxeSupply() {
+async function checkAxeSupply() {
   const axeCount = bot.inventory.items()
     .filter(item => item.name === 'diamond_axe')
     .reduce((total, item) => total + item.count, 0)
 
   if (axeCount < 1) {
     log('WARN', 'inventory', `not enough axes: ${axeCount}/1`)
+    await craftAxe()
   }
 }
 
@@ -290,10 +329,89 @@ async function chopLoop(times) {
   for (let i = 0; i < times; i++) {
     await ensureFoodStock()
     await ensureFed()
-    checkAxeSupply()
+    await checkAxeSupply()
     await chopWithRetry()
 
     log('INFO', 'progress', `${i + 1}/${times}`)
+  }
+}
+
+async function craftAxe() {
+  await bot.waitForTicks(20) // dá tempo dos logs dropados serem coletados
+
+  var logs = bot.inventory.items().filter(item => item.name.includes('log'));
+  var logCount = logs.reduce((total, item) => total + item.count, 0);
+
+  if (logCount < 2) {
+    await chopTree();
+    await bot.waitForTicks(20)
+    logs = bot.inventory.items().filter(item => item.name.includes('log'));
+  }
+
+  await ensureDiamondstock()
+
+  try {
+    log('INFO', 'craft', `using log type: ${logs[0]?.name}`)
+
+    var plankName = logs[0].name.replace('log', 'planks');
+    var plankId = bot.registry.itemsByName[plankName].id;
+    await bot.craft(bot.recipesFor(plankId, null, 1, null)[0], 2, null);
+
+    await bot.waitForTicks(10); // delay to prevent desync
+
+    var tableId = bot.registry.itemsByName['crafting_table'].id;
+    await bot.craft(bot.recipesFor(tableId, null, 1, null)[0], 1, null);
+
+    await bot.waitForTicks(10);
+
+    var stickId = bot.registry.itemsByName['stick'].id;
+    await bot.craft(bot.recipesFor(stickId, null, 1, null)[0], 1, null);
+
+    await bot.waitForTicks(10);
+
+    const tableItem = bot.inventory.items().find(item => item.name === 'crafting_table');
+    await bot.equip(tableItem, 'hand');
+
+    await bot.waitForTicks(10);
+
+    let refBlock = null;
+    const offsets = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+
+    for (const [dx, dy, dz] of offsets) {
+      const pos = bot.entity.position.floored().offset(dx, dy, dz);
+      const above = bot.blockAt(pos);
+      const below = bot.blockAt(pos.offset(0, -1, 0));
+
+      if (above?.name === 'air' && below?.name !== 'air') {
+        refBlock = below;
+        break;
+      }
+    }
+
+    if (!refBlock) {
+      log('WARN', 'craft', 'no space to place workbench')
+      return;
+    }
+
+    await bot.placeBlock(refBlock, new Vec3(0, 1, 0));
+
+    await bot.waitForTicks(10);
+
+    const tableBlock = bot.findBlock({
+      matching: bot.registry.blocksByName['crafting_table'].id,
+      maxDistance: 5
+    });
+
+    const axeId = bot.registry.itemsByName['diamond_axe'].id;
+    const recipe = bot.recipesFor(axeId, null, 1, tableBlock)[0];
+
+    await bot.craft(recipe, 1, tableBlock);
+
+    log('INFO', 'craft', 'diamond axe crafted')
+
+  } catch (err) {
+    log('ERROR', 'craft', `crafting failed: ${err.message}`)
+    throw err
   }
 }
 
@@ -377,9 +495,17 @@ async function runCommand(username, msg) {
     await buyFood()
   }
 
+  if (msg.includes('@buydiamond')) {
+    await buyDiamond()
+  }
+
   if (msg.includes('@balance')) {
     const bal = await getBalance()
     log('INFO', 'economy', `current balance: ${bal}`)
+  }
+  
+  if (msg.includes('@craftaxe')) {
+    await craftAxe()
   }
 }
 
