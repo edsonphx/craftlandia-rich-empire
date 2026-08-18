@@ -276,6 +276,7 @@ async function eat() {
 }
 
 async function ensureDiamondstock() {
+  await bot.waitForTicks(20)
   const diamondCount = bot.inventory.items()
     .filter(item => item.name === 'diamond')
     .reduce((total, item) => total + item.count, 0)
@@ -342,7 +343,7 @@ async function chopLoop(times) {
 }
 
 async function craftAxe() {
-  await bot.waitForTicks(20) // dá tempo dos logs dropados serem coletados
+  await bot.waitForTicks(20)
 
   var logs = bot.inventory.items().filter(item => item.name.includes('log'));
   var logCount = logs.reduce((total, item) => total + item.count, 0);
@@ -353,6 +354,7 @@ async function craftAxe() {
     logs = bot.inventory.items().filter(item => item.name.includes('log'));
   }
 
+  console.log("INFO", "log OK")
   await ensureDiamondstock()
 
   try {
