@@ -7,8 +7,8 @@ app.use(express.json())
 
 const bots = {} // name -> { process, pid, status, job }
 
-const BOT_SCRIPT = 'test.js'      // path to your bot script
-const BOT_DIR = __dirname         // folder where test.js lives (adjust if needed)
+const BOT_SCRIPT = 'bot.js'         // path to your bot script
+const BOT_DIR = __dirname           // folder where bot.js lives (adjust if needed)
 
 // matches the bot's log format: [HH:MM:SS] [LEVEL] [module] message
 const LOG_LINE = /^\[\d\d:\d\d:\d\d\] \[(\w+)\] \[(\w+)\] (.*)$/
