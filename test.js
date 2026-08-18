@@ -103,7 +103,7 @@ function logPosition() {
   log('INFO', 'movement', `x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`)
 }
 
-async function buy(x, y, z) {
+async function interactAt(x, y, z, act, label = 'interact') {
   const block = bot.blockAt(new Vec3(x, y, z))
   if (!block) {
     log('WARN', 'shop', 'no block found at that position')
@@ -111,23 +111,19 @@ async function buy(x, y, z) {
   }
 
   await bot.lookAt(block.position.offset(0.5, 0.5, 0.5))
-  await bot.activateBlock(block)
-  log('INFO', 'shop', `buy click on ${block.name} at ${block.position}`)
+  await act(block)
+  log('INFO', 'shop', `${label} on ${block.name} at ${block.position}`)
+}
+
+async function clickBuy(x, y, z) {
+  await interactAt(x, y, z, (block) => bot.activateBlock(block), 'buy click')
 }
 
 async function clickSell(x, y, z) {
-  const block = bot.blockAt(new Vec3(x, y, z))
-  if (!block) {
-    log('WARN', 'shop', 'no block found at that position')
-    return
-  }
-
-  await bot.lookAt(block.position.offset(0.5, 0.5, 0.5))
-  await bot.dig(block)
-  log('INFO', 'shop', `sell click (dig) on ${block.name} at ${block.position}`)
+  await interactAt(x, y, z, (block) => bot.dig(block), 'sell click (dig)')
 }
 
-async function sell() {
+async function warpToShop() {
   bot.chat('/warp loja')
   await bot.waitForTicks(20 * 10)
 
@@ -135,30 +131,25 @@ async function sell() {
 
   await goTo(-677, 6, 728)
   await goTo(-677, 6, 663)
+}
+
+async function sell() {
+  await warpToShop()
   log('INFO', 'shop', 'checkpoint AMENO reached')
 
   await goTo(-644, 6, 653)
   log('INFO', 'shop', 'arrived at sell point')
 
-  await clickSell(-644, 7, 651)
-  await clickSell(-644, 7, 652)
-  await clickSell(-644, 7, 653)
-  await clickSell(-644, 7, 654)
-  await clickSell(-644, 7, 655)
-  await clickSell(-644, 7, 656)
+  for (let z = 651; z <= 656; z++) {
+    await clickSell(-644, 7, z)
+  }
 
   await bot.waitForTicks(20 * 6)
   log('INFO', 'shop', 'sell complete')
 }
 
 async function buyFood() {
-  bot.chat('/warp loja')
-  await bot.waitForTicks(20 * 10)
-
-  bot.chat('/menuloja off')
-
-  await goTo(-677, 6, 728)
-  await goTo(-677, 6, 663)
+  await warpToShop()
   log('INFO', 'shop', 'checkpoint AMENO2 reached')
 
   await goTo(-662, 6, 605)
@@ -166,7 +157,7 @@ async function buyFood() {
 
   bot.setControlState('sneak', true);
 
-  await buy(-663, 7, 605)
+  await clickBuy(-663, 7, 605)
 
   bot.setControlState('sneak', false);
 
@@ -212,16 +203,19 @@ function getBalance() {
   })
 }
 
+async function sendChat(cmd, { repeats = 1, ticks = 0 } = {}) {
+  for (let i = 0; i < repeats; i++) {
+    bot.chat(cmd)
+    if (ticks > 0 && i < repeats - 1) await bot.waitForTicks(ticks)
+  }
+}
+
 async function pay(username, amount){
-    bot.chat(`/money pay ${username} ${amount}`)
-    await bot.waitForTicks(15)
-    bot.chat(`/money pay ${username} ${amount}`)
+    await sendChat(`/money pay ${username} ${amount}`, { repeats: 2, ticks: 15 })
 }
 
 async function setHome(name=""){
-    bot.chat('/sethome '+name)
-    await bot.waitForTicks(13)
-    bot.chat('/sethome '+name)
+    await sendChat('/sethome ' + name, { repeats: 2, ticks: 13 })
 }
 
 async function goHome(name=""){
@@ -229,71 +223,79 @@ async function goHome(name=""){
     await bot.waitForTicks(20 * 10)
 }
 
+function countItems(bot, names) {
+  const list = Array.isArray(names) ? names : [names]
+  return bot.inventory.items()
+    .filter(Boolean)
+    .filter(item => list.includes(item.name))
+    .reduce((total, item) => total + item.count, 0)
+}
+
+function findItem(bot, names) {
+  const list = Array.isArray(names) ? names : [names]
+  return bot.inventory.items().find(item => item && list.includes(item.name)) || null
+}
+
+async function ensure({ measure, threshold, remediate, label }) {
+  const value = await measure()
+  if (value >= threshold) return
+
+  log('WARN', 'survival', `${label} low: ${value}/${threshold}`)
+  if (remediate) await remediate()
+}
+
+async function restock() {
+  await setHome("tmp")
+  await bot.waitForTicks(13)
+  await buyFood()
+  await goHome("tmp")
+}
+
 async function eat() {
-  const food = bot.inventory.items().find(item => item.name === 'cooked_beef');
-
-    if (!food) {
-        log('WARN', 'survival', 'no cooked_beef to eat')
-        return;
-    }
-
-    await bot.waitForTicks(20)
-    await bot.equip(food, 'hand');
-    await bot.consume(); 
-    await bot.waitForTicks(20)
-    const axe = bot.inventory.items().find(item => item.name === 'diamond_axe');
-    await bot.waitForTicks(20)
-    await bot.equip(axe, 'hand');
+  await bot.waitForTicks(20)
+  const food = findItem(bot, 'cooked_beef')
+  await bot.equip(food, 'hand')
+  await bot.consume()
+  await bot.waitForTicks(20)
+  const axe = findItem(bot, 'diamond_axe')
+  await bot.waitForTicks(20)
+  await bot.equip(axe, 'hand')
 }
 
-async function ensureFoodStock() {
-  const meatCount = bot.inventory.items()
-    .filter(item => item.name === 'cooked_beef')
-    .reduce((total, item) => total + item.count, 0)
-
-  if (meatCount < 1) {
-    log('WARN', 'survival', `meat count low: ${meatCount}`)
-    await setHome("tmp")
-    await bot.waitForTicks(13)
-    await buyFood()
-    await goHome("tmp")
-  }
+async function ensureFood() {
+  await ensure({ measure: () => countItems(bot, 'cooked_beef'), threshold: 1, label: 'meat', remediate: restock })
+  await ensure({ measure: () => bot.food, threshold: 15, label: 'food', remediate: eat })
 }
 
-async function ensureFed() {
-  if (bot.food < 15) {
-    log('WARN', 'survival', `food low: ${bot.food}`)
-    await eat()
-  }
-}
-
-function checkAxeSupply() {
-  const axeCount = bot.inventory.items()
-    .filter(item => item.name === 'diamond_axe')
-    .reduce((total, item) => total + item.count, 0)
-
-  if (axeCount < 1) {
-    log('WARN', 'inventory', `not enough axes: ${axeCount}/1`)
-  }
-}
-
-async function chopWithRetry() {
-  try {
-    await chopTree()
-  } catch (error) {
-    log('WARN', 'chop', 'retrying chop after failure')
-    await chopTree()
-  }
+async function ensureAxe() {
+  await ensure({ measure: () => countItems(bot, 'diamond_axe'), threshold: 1, label: 'axes' })
 }
 
 async function chopLoop(times) {
+  let ok = true
   for (let i = 0; i < times; i++) {
-    await ensureFoodStock()
-    await ensureFed()
-    checkAxeSupply()
-    await chopWithRetry()
+    await ensureFood()
+    await ensureAxe()
+    ok = (await runAction('chop tree', () => chopTree(), { retry: 1, module: 'chop' })) && ok
 
     log('INFO', 'progress', `${i + 1}/${times}`)
+  }
+  if (!ok) throw new Error('chop failed after retries')
+}
+
+async function runAction(name, fn, { retry = 0, module = 'command' } = {}) {
+  log('INFO', module, `start: ${name}`)
+  try {
+    await fn()
+    log('INFO', module, `done: ${name}`)
+    return true
+  } catch (err) {
+    if (retry > 0) {
+      log('WARN', module, `retrying ${name}: ${err.message}`)
+      return runAction(name, fn, { retry: retry - 1, module })
+    }
+    log('ERROR', module, `failed: ${name} - ${err.message}`)
+    return false
   }
 }
 
@@ -301,86 +303,88 @@ async function runSequence(username, msg) {
   const commands = msg.split(';').map(c => c.trim()).filter(Boolean)
 
   for (const cmd of commands) {
-    log('INFO', 'command', `start: ${cmd}`)
-    try {
-      await runCommand(username, cmd)
-      log('INFO', 'command', `done: ${cmd}`)
-    } catch (err) {
-      log('ERROR', 'command', `failed: ${cmd} - ${err.message}`)
+    await runAction(cmd, () => runCommand(username, cmd))
+  }
+}
+
+const commands = {
+  '@call': {
+    run: (username) => bot.chat(`/call ${username}`)
+  },
+
+  '@treebreak': {
+    parse: (msg) => msg.replace('@treebreak', '').trim().split(/\s+/).slice(0, 3).map(parseFloat),
+    run: (username, [x, y, z]) => breakTree(x, y, z)
+  },
+
+  '@chat': {
+    parse: (msg) => msg.replace(/^@chat\s+/, ''),
+    run: (username, text) => bot.chat(text)
+  },
+
+  '@findtree': {
+    run: () => {
+      const tree = locateNearestTree()
+      log('INFO', 'chop', tree ? `nearest tree at ${tree.position}` : 'no tree found')
+    }
+  },
+
+  '@goto': {
+    parse: (msg) => msg.replace('@goto', '').trim().split(/\s+/).slice(0, 3).map(parseInt),
+    run: (username, [x, y, z]) => goTo(x, y, z)
+  },
+
+  '@position': {
+    run: () => logPosition()
+  },
+
+  '@pay': {
+    parse: (msg) => msg.replace('@pay ', ''),
+    run: (username, amount) => pay(username, amount)
+  },
+
+  '@wait': {
+    parse: (msg) => msg.replace('@wait ', ''),
+    run: (username, ticks) => bot.waitForTicks(ticks)
+  },
+
+  '@sethome': {
+    run: () => setHome()
+  },
+
+  '@gohome': {
+    run: () => goHome()
+  },
+
+  '@chop': {
+    parse: (msg) => parseInt(msg.replace('@chop', '').trim().split(/\s+/)[0]) || 1,
+    run: (username, times) => chopLoop(times)
+  },
+
+  '@sell': {
+    run: () => sell()
+  },
+
+  '@buyfood': {
+    run: () => buyFood()
+  },
+
+  '@balance': {
+    run: async () => {
+      const bal = await getBalance()
+      log('INFO', 'economy', `current balance: ${bal}`)
     }
   }
 }
 
 async function runCommand(username, msg) {
-  if (msg.includes('@call')) {
-    bot.chat(`/call ${username}`)
-  }
+  const token = (msg.match(/^(@\w+)/) || [])[0]
+  const entry = commands[token]
+  if (!entry) throw new Error(`unknown command: ${msg}`)
 
-  if (msg.includes('@treebreak')) {
-    var args = msg.replace('@treebreak', '').trim().split(/\s+/)
-    var x = parseFloat(args[0])
-    var y = parseFloat(args[1])
-    var z = parseFloat(args[2])
-    await breakTree(x, y, z)
-  }
-
-  if (msg.includes('@chat')) {
-    bot.chat(msg.replace('@chat ', ''))
-  }
-
-  if (msg.includes('@findtree')) {
-    const tree = locateNearestTree()
-    log('INFO', 'chop', tree ? `nearest tree at ${tree.position}` : 'no tree found')
-  }
-
-  if (msg.includes('@goto')) {
-    var args = msg.replace('@goto', '').trim().split(/\s+/)
-    var x = parseInt(args[0])
-    var y = parseInt(args[1])
-    var z = parseInt(args[2])
-    await goTo(x, y, z)
-  }
-
-  if (msg.includes('@position')) {
-    logPosition()
-  }
-
-  if (msg.includes('@pay')) {
-    var amount = msg.replace('@pay ', '')
-    await pay(username, amount)
-  }
-
-  if (msg.includes('@wait')) {
-    var ticks = msg.replace('@wait ', '')
-    await bot.waitForTicks(ticks)
-  }
-
-  if (msg.includes('@sethome')) {
-    await setHome()
-  }
-
-  if (msg.includes('@gohome')) {
-    await goHome()
-  }
-
-  if (msg.includes('@chop')) {
-    var args = msg.replace('@chop', '').trim().split(/\s+/)
-    var times = parseInt(args[0]) || 1
-    await chopLoop(times)
-  }
-
-  if (msg.includes('@sell')) {
-    await sell()
-  }
-
-  if (msg.includes('@buyfood')) {
-    await buyFood()
-  }
-
-  if (msg.includes('@balance')) {
-    const bal = await getBalance()
-    log('INFO', 'economy', `current balance: ${bal}`)
-  }
+  const parse = entry.parse || (() => [])
+  const args = parse(msg)
+  await entry.run(username, args)
 }
 
 bot.on('message', async (jsonMsg) => {
