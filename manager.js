@@ -38,6 +38,7 @@ function updateJobProgress(bot, message) {
   const m = message.match(/(\d+)\/(\d+)/)
   if (!m) return
   bot.job.steps[bot.job.cursor].progress = { current: parseInt(m[1]), total: parseInt(m[2]) }
+  bot.lastProgressAt = Date.now()
 }
 
 // figures out what's left to run from a job that got interrupted mid-way.
@@ -50,7 +51,7 @@ function buildResumeCommand(job) {
   for (const step of job.steps) {
     if (step.status === 'done') continue
 
-    if (step.status === 'in_progress' && step.progress) {
+    if (step.progress) {
       const left = step.progress.total - step.progress.current
       if (left > 0) {
         remaining.push(step.cmd.replace(/\d+/, left))
@@ -58,7 +59,7 @@ function buildResumeCommand(job) {
       continue
     }
 
-    // in_progress without progress, not_started, or failed -> rerun as-is
+    // no progress info (never started, or failed before any progress) -> rerun as-is
     remaining.push(step.cmd)
   }
 
@@ -92,6 +93,18 @@ function handleLogLine(bot, line) {
       const rest = message.slice(8)
       const [cmd, error] = rest.split(' - ')
       advanceJob(bot, cmd, 'failed', error)
+
+      // process is still alive here - resume right away instead of waiting for exit
+      bot.failureResumeCount = (bot.failureResumeCount || 0) + 1
+      if (bot.failureResumeCount > MAX_AUTO_RESTARTS) {
+        console.log(`[resume-after-failure] too many failures for this job, giving up`)
+      } else {
+        const resume = buildResumeCommand(bot.job)
+        if (resume) {
+          console.log(`[resume-after-failure] sending: ${resume}`)
+          bot.process.stdin.write(resume + '\n')
+        }
+      }
     }
     return
   }
@@ -127,7 +140,9 @@ function startBot(name) {
     job: previous ? previous.job : null,
     pendingResume: previous ? previous.pendingResume : null,
     intentionalStop: false,
-    crashCount: previous ? (previous.crashCount || 0) : 0
+    crashCount: previous ? (previous.crashCount || 0) : 0,
+    failureResumeCount: previous ? (previous.failureResumeCount || 0) : 0,
+    lastProgressAt: null
   }
 
   child.stdout.on('data', (data) => {
@@ -172,6 +187,7 @@ function stopBot(name) {
   bot.status = 'stopped'
   bot.job = null
   bot.pendingResume = null
+  bot.failureResumeCount = 0
   return { ok: true }
 }
 
@@ -181,6 +197,7 @@ function restartBot(name) {
     bot.crashCount = 0 // manual restart resets the crash counter
     bot.job = null
     bot.pendingResume = null
+    bot.failureResumeCount = 0
   }
   stopBot(name)
   setTimeout(() => startBot(name), 500)
@@ -236,3 +253,27 @@ app.get('/', (req, res) => {
 
 const PORT = 3000
 app.listen(PORT, () => console.log(`manager running on http://localhost:${PORT}`))
+
+// --- stall watchdog ---
+// if a bot is mid-progress-step and hasn't logged progress in STALL_TIMEOUT_MS,
+// assume it's stuck (e.g. pathfinder hung) and kill it. the existing exit
+// handler already knows how to resume from the last known progress.
+const STALL_TIMEOUT_MS = 3 * 60 * 1000 // hardcoded 3 minutes
+const STALL_CHECK_INTERVAL_MS = 10 * 1000
+
+setInterval(() => {
+  const now = Date.now()
+
+  for (const [name, bot] of Object.entries(bots)) {
+    if (bot.status !== 'running') continue
+    if (!bot.job || bot.job.cursor < 0) continue
+
+    const step = bot.job.steps[bot.job.cursor]
+    if (!step || step.status !== 'in_progress' || !bot.lastProgressAt) continue
+
+    if (now - bot.lastProgressAt > STALL_TIMEOUT_MS) {
+      console.log(`[${name}] stalled (no progress for ${STALL_TIMEOUT_MS / 1000}s), killing to trigger resume`)
+      bot.process.kill('SIGKILL') // exit handler takes it from here
+    }
+  }
+}, STALL_CHECK_INTERVAL_MS)
