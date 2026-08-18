@@ -44,7 +44,7 @@ bot.once('spawn', async () => {
   log('INFO', 'auth', 'logged in')
   await bot.waitForTicks(13)
   bot.chat('/menuloja off')
-  await bot.waitForTicks(20 * 5)
+  await bot.waitForTicks(33 * 6)
   bot.chat('/tell BallKnower hello boss')
 })
 
@@ -59,9 +59,12 @@ function locateNearestTree(maxDistance = 32) {
   const block = bot.findBlock({
     maxDistance,
     matching: (b) => {
+      if (!b.name.includes('log')) return false;
+      if (lastTree && b.position.x === lastTree.x && b.position.z === lastTree.z) return false;
 
-      return b.name.includes('log') && 
-             !(lastTree && b.position.x === lastTree.x && b.position.z === lastTree.z);
+      const above = bot.blockAt(b.position.offset(0, 1, 0));
+      const below = bot.blockAt(b.position.offset(0, -1, 0));
+      return above?.name.includes('log') || below?.name.includes('log');
     }
   });
 
@@ -249,8 +252,10 @@ async function setHome(name=""){
 }
 
 async function goHome(name=""){
-    bot.chat('/home '+name)
-    await bot.waitForTicks(20 * 10)
+    var command = '/home '+name
+    console.log("INFO", "command: "+command)
+    bot.chat(command)
+    await bot.waitForTicks(20 * 13)
 }
 
 async function eat() {

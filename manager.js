@@ -7,8 +7,8 @@ app.use(express.json())
 
 const bots = {} // name -> { process, pid, status, job }
 
-const BOT_SCRIPT = 'bot.js'         // path to your bot script
-const BOT_DIR = __dirname           // folder where bot.js lives (adjust if needed)
+const BOT_SCRIPT = 'bot.js'      // path to your bot script
+const BOT_DIR = __dirname         // folder where bot.js lives (adjust if needed)
 
 // matches the bot's log format: [HH:MM:SS] [LEVEL] [module] message
 const LOG_LINE = /^\[\d\d:\d\d:\d\d\] \[(\w+)\] \[(\w+)\] (.*)$/
@@ -31,6 +31,11 @@ function advanceJob(bot, cmd, status, error) {
   bot.job.cursor = idx
   bot.job.steps[idx].status = status
   if (error) bot.job.steps[idx].error = error
+
+  if (status === 'done') {
+    bot.failureResumeCount = 0 // successful step resets the consecutive-failure counter
+    bot.crashCount = 0
+  }
 }
 
 function updateJobProgress(bot, message) {
@@ -99,8 +104,9 @@ function handleLogLine(bot, line) {
       if (bot.failureResumeCount > MAX_AUTO_RESTARTS) {
         console.log(`[resume-after-failure] too many failures for this job, giving up`)
       } else {
-        const resume = buildResumeCommand(bot.job)
-        if (resume) {
+        const partial = buildResumeCommand(bot.job)
+        if (partial) {
+          const resume = `@gohome;${partial}`
           console.log(`[resume-after-failure] sending: ${resume}`)
           bot.process.stdin.write(resume + '\n')
         }
@@ -111,9 +117,15 @@ function handleLogLine(bot, line) {
 
   if (module === 'auth' && message === 'logged in') {
     if (bot.pendingResume) {
-      console.log(`[resume] sending: ${bot.pendingResume}`)
-      bot.process.stdin.write(bot.pendingResume + '\n')
+      const resume = `@gohome;${bot.pendingResume}`
       bot.pendingResume = null
+      console.log(`[resume] scheduled in ${RESUME_DELAY_MS / 1000}s: ${resume}`)
+      setTimeout(() => {
+        if (bot.process && bot.status === 'running') {
+          console.log(`[resume] sending: ${resume}`)
+          bot.process.stdin.write(resume + '\n')
+        }
+      }, RESUME_DELAY_MS)
     }
     return
   }
@@ -124,6 +136,7 @@ function handleLogLine(bot, line) {
 }
 
 const MAX_AUTO_RESTARTS = 5
+const RESUME_DELAY_MS = 8000 // wait after login before sending resume command
 
 function startBot(name) {
   if (bots[name] && bots[name].status === 'running') {
