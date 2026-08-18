@@ -1,6 +1,7 @@
 const mineflayer = require('mineflayer')
 const { Vec3 } = require('vec3')
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder')
+const { mineflayer: mineflayerViewer } = require('prismarine-viewer')
 
 function log(level, module, message) {
   const time = new Date().toTimeString().split(' ')[0]
@@ -8,6 +9,7 @@ function log(level, module, message) {
 }
 
 const username = process.argv[2] || 'biru44zika'
+const viewerPort = parseInt(process.argv[3]) || null
 
 const bot = mineflayer.createBot({
   //host: 'localhost',
@@ -20,9 +22,14 @@ const bot = mineflayer.createBot({
 bot.loadPlugin(pathfinder)
 
 bot.once('spawn', async () => {
+  if (viewerPort) {
+    mineflayerViewer(bot, { port: viewerPort, firstPerson: true, viewDistance: 6 })
+    log('INFO', 'viewer', `listening on port ${viewerPort}`)
+  }
+
   const movements = new Movements(bot)
 
-  movements.allowFreeMotion = true
+  movements.allowFreeMotion = false
   movements.canDig = true
   movements.maxDropDown = 13
   movements.allowSprinting = true
@@ -283,10 +290,10 @@ async function ensureDiamondstock() {
 
   if (diamondCount < 1) {
     log('WARN', 'diamonds', `diamonds count low: ${diamondCount}`)
-    await setHome("tmp")
+    await setHome()
     await bot.waitForTicks(13)
     await buyDiamond()
-    await goHome("tmp")
+    await goHome()
   }
 }
 
@@ -297,10 +304,10 @@ async function ensureFoodStock() {
 
   if (meatCount < 1) {
     log('WARN', 'survival', `meat count low: ${meatCount}`)
-    await setHome("tmp")
+    await setHome()
     await bot.waitForTicks(13)
     await buyFood()
-    await goHome("tmp")
+    await goHome()
   }
 }
 

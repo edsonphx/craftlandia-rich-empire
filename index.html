@@ -17,6 +17,8 @@
     .in_progress { color: #fc4; background: #332a00; }
     .done { color: #4f4; }
     .failed { color: #f44; background: #330000; }
+    .viewer-frame { width: 480px; height: 320px; border: 1px solid #444; display: none; }
+    .viewer-frame.open { display: block; }
   </style>
 </head>
 <body>
@@ -29,7 +31,7 @@
 
   <table id="botTable">
     <thead>
-      <tr><th>Name</th><th>PID</th><th>Status</th><th>Actions</th><th>Command</th><th>Job</th></tr>
+      <tr><th>Name</th><th>PID</th><th>Status</th><th>Actions</th><th>Command</th><th>Job</th><th>View</th></tr>
     </thead>
     <tbody id="botRows"></tbody>
   </table>
@@ -40,37 +42,86 @@ async function api(url, options) {
   return res.json()
 }
 
+// row elements are kept across refreshes so the viewer iframe never reloads.
+// only the dynamic cells (status/pid/job) get their content replaced.
+const rows = {} // name -> { tr, statusCell, pidCell, jobCell, viewerFrame, viewBtn }
+
+function buildRow(bot) {
+  const tr = document.createElement('tr')
+
+  const nameCell = document.createElement('td')
+  nameCell.textContent = bot.name
+
+  const pidCell = document.createElement('td')
+
+  const statusCell = document.createElement('td')
+
+  const actionsCell = document.createElement('td')
+  const stopBtn = document.createElement('button')
+  stopBtn.textContent = 'Stop'
+  stopBtn.onclick = () => stopBot(bot.name)
+  const restartBtn = document.createElement('button')
+  restartBtn.textContent = 'Restart'
+  restartBtn.onclick = () => restartBot(bot.name)
+  actionsCell.append(stopBtn, restartBtn)
+
+  const cmdCell = document.createElement('td')
+  const cmdInput = document.createElement('input')
+  cmdInput.placeholder = '@chop 10;@sell'
+  cmdInput.size = 25
+  const sendBtn = document.createElement('button')
+  sendBtn.textContent = 'Send'
+  sendBtn.onclick = () => sendCommand(bot.name, cmdInput)
+  cmdCell.append(cmdInput, sendBtn)
+
+  const jobCell = document.createElement('td')
+
+  const viewCell = document.createElement('td')
+  const viewBtn = document.createElement('button')
+  viewBtn.textContent = 'Show view'
+  const viewerFrame = document.createElement('iframe')
+  viewerFrame.className = 'viewer-frame'
+
+  viewBtn.onclick = () => {
+    const isOpen = viewerFrame.classList.toggle('open')
+    if (isOpen) {
+      viewerFrame.src = `http://localhost:${bot.viewerPort}`
+      viewBtn.textContent = 'Hide view'
+    } else {
+      viewerFrame.src = '' // stop rendering while hidden
+      viewBtn.textContent = 'Show view'
+    }
+  }
+
+  viewCell.append(viewBtn, viewerFrame)
+
+  tr.append(nameCell, pidCell, statusCell, actionsCell, cmdCell, jobCell, viewCell)
+
+  rows[bot.name] = { tr, statusCell, pidCell, jobCell, viewerFrame, viewBtn }
+  document.getElementById('botRows').appendChild(tr)
+}
+
+function updateRow(bot) {
+  const row = rows[bot.name]
+  row.pidCell.textContent = bot.pid
+  row.statusCell.textContent = bot.status
+  row.statusCell.className = bot.status
+
+  row.jobCell.innerHTML = bot.job
+    ? bot.job.steps.map(s => {
+        const progress = s.progress ? ` (${s.progress.current}/${s.progress.total})` : ''
+        const error = s.error ? ` - ${s.error}` : ''
+        return `<div class="step ${s.status}">${s.cmd}${progress} — ${s.status}${error}</div>`
+      }).join('')
+    : '<span style="color:#666">no job yet</span>'
+}
+
 async function refresh() {
   const bots = await api('/bots')
-  const rows = document.getElementById('botRows')
-  rows.innerHTML = ''
 
   bots.forEach(bot => {
-    const tr = document.createElement('tr')
-
-    const jobHtml = bot.job
-      ? bot.job.steps.map(s => {
-          const progress = s.progress ? ` (${s.progress.current}/${s.progress.total})` : ''
-          const error = s.error ? ` - ${s.error}` : ''
-          return `<div class="step ${s.status}">${s.cmd}${progress} — ${s.status}${error}</div>`
-        }).join('')
-      : '<span style="color:#666">no job yet</span>'
-
-    tr.innerHTML = `
-      <td>${bot.name}</td>
-      <td>${bot.pid}</td>
-      <td class="${bot.status}">${bot.status}</td>
-      <td>
-        <button onclick="stopBot('${bot.name}')">Stop</button>
-        <button onclick="restartBot('${bot.name}')">Restart</button>
-      </td>
-      <td>
-        <input id="cmd-${bot.name}" placeholder="@chop 10;@sell" size="25">
-        <button onclick="sendCommand('${bot.name}')">Send</button>
-      </td>
-      <td>${jobHtml}</td>
-    `
-    rows.appendChild(tr)
+    if (!rows[bot.name]) buildRow(bot)
+    updateRow(bot)
   })
 }
 
@@ -92,8 +143,7 @@ async function restartBot(name) {
   refresh()
 }
 
-async function sendCommand(name) {
-  const input = document.getElementById(`cmd-${name}`)
+async function sendCommand(name, input) {
   const cmd = input.value.trim()
   if (!cmd) return
   await api(`/bots/${name}/command`, {
@@ -105,7 +155,7 @@ async function sendCommand(name) {
 }
 
 refresh()
-setInterval(refresh, 15000)
+setInterval(refresh, 3000)
 </script>
 </body>
 </html>

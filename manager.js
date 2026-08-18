@@ -40,7 +40,8 @@ function advanceJob(bot, cmd, status, error) {
 }
 
 const SPIN_WINDOW = 5
-const SPIN_MAX_SPAN_MS = 10000 
+const SPIN_MAX_SPAN_MS = 10000
+
 function updateJobProgress(bot, message) {
   if (!bot.job || bot.job.cursor < 0) return
   const m = message.match(/(\d+)\/(\d+)/)
@@ -152,7 +153,14 @@ function handleLogLine(bot, line) {
 }
 
 const MAX_AUTO_RESTARTS = 5
-const RESUME_DELAY_MS = 8000 // wait after login before sending resume command
+const RESUME_DELAY_MS = 13000 // wait after login before sending resume command
+const VIEWER_BASE_PORT = 3100
+
+let nextViewerPort = VIEWER_BASE_PORT
+function assignViewerPort(previous) {
+  if (previous && previous.viewerPort) return previous.viewerPort
+  return nextViewerPort++
+}
 
 function startBot(name) {
   if (bots[name] && bots[name].status === 'running') {
@@ -160,7 +168,8 @@ function startBot(name) {
   }
 
   const previous = bots[name]
-  const child = spawn('node', [BOT_SCRIPT, name], { cwd: BOT_DIR })
+  const viewerPort = assignViewerPort(previous)
+  const child = spawn('node', [BOT_SCRIPT, name, viewerPort], { cwd: BOT_DIR })
 
   bots[name] = {
     process: child,
@@ -171,7 +180,8 @@ function startBot(name) {
     intentionalStop: false,
     crashCount: previous ? (previous.crashCount || 0) : 0,
     failureResumeCount: previous ? (previous.failureResumeCount || 0) : 0,
-    lastProgressAt: null
+    lastProgressAt: null,
+    viewerPort
   }
 
   child.stdout.on('data', (data) => {
@@ -246,7 +256,8 @@ function listBots() {
     name,
     pid: b.pid,
     status: b.status,
-    job: b.job
+    job: b.job,
+    viewerPort: b.viewerPort
   }))
 }
 
