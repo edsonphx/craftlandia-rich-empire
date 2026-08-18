@@ -20,6 +20,7 @@ function startJob(bot, raw) {
     progress: null
   }))
   bot.job = { raw, steps, cursor: -1 }
+  bot.progressTimestamps = []
 }
 
 // finds the first step matching cmd that hasn't finished yet and marks it
@@ -38,12 +39,27 @@ function advanceJob(bot, cmd, status, error) {
   }
 }
 
+const SPIN_WINDOW = 5
+const SPIN_MAX_SPAN_MS = 10000 
 function updateJobProgress(bot, message) {
   if (!bot.job || bot.job.cursor < 0) return
   const m = message.match(/(\d+)\/(\d+)/)
   if (!m) return
   bot.job.steps[bot.job.cursor].progress = { current: parseInt(m[1]), total: parseInt(m[2]) }
   bot.lastProgressAt = Date.now()
+
+  bot.progressTimestamps = bot.progressTimestamps || []
+  bot.progressTimestamps.push(bot.lastProgressAt)
+  if (bot.progressTimestamps.length > SPIN_WINDOW) bot.progressTimestamps.shift()
+
+  if (bot.progressTimestamps.length === SPIN_WINDOW) {
+    const span = bot.progressTimestamps[SPIN_WINDOW - 1] - bot.progressTimestamps[0]
+    if (span < SPIN_MAX_SPAN_MS) {
+      console.log(`progress spinning too fast (${SPIN_WINDOW} updates in ${span}ms) - no real work happening, forcing hard reset`)
+      bot.progressTimestamps = []
+      bot.process.kill('SIGKILL') // exit handler takes it from here (resume + @gohome)
+    }
+  }
 }
 
 // figures out what's left to run from a job that got interrupted mid-way.
