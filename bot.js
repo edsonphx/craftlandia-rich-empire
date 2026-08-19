@@ -52,12 +52,6 @@ const bot = mineflayer.createBot(botOptions)
 bot.loadPlugin(pathfinder)
 
 let botReady = false
-async function waitUntilReady() {
-  while (!botReady) {
-    await new Promise((resolve) => setTimeout(resolve, 200))
-  }
-}
-
 bot.once('spawn', async () => {
   if (viewerPort) {
     mineflayerViewer(bot, { port: viewerPort, firstPerson: true, viewDistance: 6 })
@@ -103,13 +97,14 @@ const ctx = { bot, helpers, log, username }
 const commands = {}
 for (const file of fs.readdirSync(path.join(__dirname, 'commands'))) {
   if (!file.endsWith('.js')) continue
-  commands[file.slice(0, -3)] = require(path.join(__dirname, 'commands', file))
+  var commandPath = path.join(__dirname, 'commands', file)
+  commands[file.slice(0, -3)] = require(commandPath)
 }
 
 async function runCommand(username, msg) {
-  for (const [name, run] of Object.entries(commands)) {
+  for (const [name, commandExecution] of Object.entries(commands)) {
     if (msg.includes('@' + name)) {
-      await run(ctx, msg)
+      await commandExecution(ctx, msg)
       return
     }
   }
@@ -168,7 +163,10 @@ bot.on('message', async (jsonMsg) => {
     const [, senderUsername, msg] = match
     log('INFO', 'whisper', `${senderUsername}: ${msg}`)
 
-    await waitUntilReady()
+    while (!botReady) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+  
     await runSequence(senderUsername, msg)
 
     return
