@@ -2,6 +2,7 @@ const mineflayer = require('mineflayer')
 const { Vec3 } = require('vec3')
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder')
 const { mineflayer: mineflayerViewer } = require('prismarine-viewer')
+const { SocksClient } = require('socks')
 
 function log(level, module, message) {
   const time = new Date().toTimeString().split(' ')[0]
@@ -10,14 +11,45 @@ function log(level, module, message) {
 
 const username = process.argv[2] || 'biru44zika'
 const viewerPort = parseInt(process.argv[3]) || null
+const proxyArg = process.argv[4] || null // format: "host:port" or "host:port:user:pass"
 
-const bot = mineflayer.createBot({
-  //host: 'localhost',
-  host: 'olimpo.craftlandia.com.br',
+const MC_HOST = 'olimpo.craftlandia.com.br'
+const MC_PORT = 25565
+
+const botOptions = {
+  host: MC_HOST,
   username: username,
   auth: 'offline',
-  //port: 51744,
-})
+}
+
+if (proxyArg) {
+  const [proxyHost, proxyPort, proxyUser, proxyPass] = proxyArg.split(':')
+
+  botOptions.connect = (client) => {
+    SocksClient.createConnection({
+      proxy: {
+        host: proxyHost,
+        port: parseInt(proxyPort),
+        type: 5,
+        userId: proxyUser,
+        password: proxyPass
+      },
+      command: 'connect',
+      destination: { host: MC_HOST, port: MC_PORT }
+    }, (err, info) => {
+      if (err) {
+        log('ERROR', 'proxy', `connection failed: ${err.message}`)
+        return
+      }
+      client.setSocket(info.socket)
+      client.emit('connect')
+    })
+  }
+
+  log('INFO', 'proxy', `routing through ${proxyHost}:${proxyPort}`)
+}
+
+const bot = mineflayer.createBot(botOptions)
 
 bot.loadPlugin(pathfinder)
 
@@ -29,12 +61,13 @@ bot.once('spawn', async () => {
 
   const movements = new Movements(bot)
 
-  movements.allowFreeMotion = false
+  movements.allowFreeMotion = true
   movements.canDig = true
   movements.maxDropDown = 13
   movements.allowSprinting = true
   movements.allow1by1towers = false
   movements.allowParkour = false
+  movements.allowCornerCutting = false // stops bot getting hitbox-snagged on corners
 
   for (const block of Object.values(bot.registry.blocksByName)) {
     if (block.name.includes('leaves')) {
@@ -53,10 +86,20 @@ bot.once('spawn', async () => {
   bot.chat('/menuloja off')
   await bot.waitForTicks(33 * 6)
   bot.chat('/tell BallKnower hello boss')
+
+  botReady = true
+  log('INFO', 'auth', 'bot ready for commands')
 })
 
+let botReady = false
+async function waitUntilReady() {
+  while (!botReady) {
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+}
+
 async function goTo(x, y, z) {
-  const goal = new goals.GoalBlock(x, y, z)
+  const goal = new goals.GoalNear(x, y, z, 1)
   await bot.pathfinder.goto(goal)
   log('INFO', 'movement', `arrived at (${x}, ${y}, ${z})`)
 }
@@ -290,10 +333,10 @@ async function ensureDiamondstock() {
 
   if (diamondCount < 1) {
     log('WARN', 'diamonds', `diamonds count low: ${diamondCount}`)
-    await setHome()
+    await setHome("tmp")
     await bot.waitForTicks(13)
     await buyDiamond()
-    await goHome()
+    await goHome("tmp")
   }
 }
 
@@ -304,10 +347,10 @@ async function ensureFoodStock() {
 
   if (meatCount < 1) {
     log('WARN', 'survival', `meat count low: ${meatCount}`)
-    await setHome()
+    await setHome("tmp")
     await bot.waitForTicks(13)
     await buyFood()
-    await goHome()
+    await goHome("tmp")
   }
 }
 
@@ -530,6 +573,7 @@ bot.on('message', async (jsonMsg) => {
     const [, senderUsername, msg] = match
     log('INFO', 'whisper', `${senderUsername}: ${msg}`)
 
+    await waitUntilReady()
     await runSequence(senderUsername, msg)
 
     return
@@ -542,6 +586,7 @@ process.stdin.on('data', async (data) => {
 
   log('INFO', 'stdin', msg)
 
+  await waitUntilReady()
   await runSequence('orchestrator', msg)
 })
 

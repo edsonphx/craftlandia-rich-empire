@@ -1,6 +1,7 @@
 const express = require('express')
 const { spawn } = require('child_process')
 const path = require('path')
+const fs = require('fs')
 
 const app = express()
 app.use(express.json())
@@ -153,13 +154,38 @@ function handleLogLine(bot, line) {
 }
 
 const MAX_AUTO_RESTARTS = 5
-const RESUME_DELAY_MS = 13000 // wait after login before sending resume command
+const RESUME_DELAY_MS = 8000 // wait after login before sending resume command
 const VIEWER_BASE_PORT = 3100
+
+// list of proxies, one per bot. format: "host:port" or "host:port:user:pass"
+// fill this in (or load from a file/env) before starting bots
+const PROXY_LIST_FILE = path.join(BOT_DIR, 'proxylist.txt')
+
+function loadProxies() {
+  try {
+    const content = fs.readFileSync(PROXY_LIST_FILE, 'utf8')
+    return content.split('\n').map(l => l.trim()).filter(Boolean)
+  } catch {
+    return [] // file doesn't exist -> no proxies, bots connect directly
+  }
+}
+
+const PROXIES = loadProxies()
+console.log(`loaded ${PROXIES.length} proxies from ${PROXY_LIST_FILE}`)
 
 let nextViewerPort = VIEWER_BASE_PORT
 function assignViewerPort(previous) {
   if (previous && previous.viewerPort) return previous.viewerPort
   return nextViewerPort++
+}
+
+let nextProxyIndex = 0
+function assignProxy(previous) {
+  if (previous && previous.proxy) return previous.proxy // keep same proxy across restarts
+  if (PROXIES.length === 0) return null
+  const proxy = PROXIES[nextProxyIndex % PROXIES.length]
+  nextProxyIndex++
+  return proxy
 }
 
 function startBot(name) {
@@ -169,7 +195,12 @@ function startBot(name) {
 
   const previous = bots[name]
   const viewerPort = assignViewerPort(previous)
-  const child = spawn('node', [BOT_SCRIPT, name, viewerPort], { cwd: BOT_DIR })
+  const proxy = assignProxy(previous)
+
+  const args = [BOT_SCRIPT, name, viewerPort]
+  if (proxy) args.push(proxy)
+
+  const child = spawn('node', args, { cwd: BOT_DIR })
 
   bots[name] = {
     process: child,
@@ -181,7 +212,8 @@ function startBot(name) {
     crashCount: previous ? (previous.crashCount || 0) : 0,
     failureResumeCount: previous ? (previous.failureResumeCount || 0) : 0,
     lastProgressAt: null,
-    viewerPort
+    viewerPort,
+    proxy
   }
 
   child.stdout.on('data', (data) => {
@@ -257,7 +289,8 @@ function listBots() {
     pid: b.pid,
     status: b.status,
     job: b.job,
-    viewerPort: b.viewerPort
+    viewerPort: b.viewerPort,
+    proxy: b.proxy
   }))
 }
 
