@@ -16,7 +16,7 @@ function findItem(bot, name) {
   return bot.inventory.items().find(item => item && item.name === name) || null
 }
 
-function tokens(msg, cmd, n) {
+function getParams(msg, cmd, n) {
   return msg.replace(cmd, '').trim().split(/\s+/).slice(0, n)
 }
 

@@ -15,7 +15,7 @@ async function chopTree(bot) {
 
 module.exports = async function chop(ctx, msg) {
   const { bot, helpers } = ctx
-  const times = parseInt(tokens(msg, '@chop', 1)[0]) || 1
+  const times = parseInt(getParams(msg, '@chop', 1)[0]) || 1
 
   for (let i = 0; i < times; i++) {
     await helpers.ensureFoodStock(bot)

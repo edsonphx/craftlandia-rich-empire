@@ -2,7 +2,7 @@ const { tokens } = require('../helpers')
 
 module.exports = async function pay(ctx, msg) {
   const { bot, log } = ctx
-  const amount = tokens(msg, '@pay', 1)[0]
+  const amount = getParams(msg, '@pay', 1)[0]
 
   bot.chat(`/money pay ${ctx.username} ${amount}`)
   await bot.waitForTicks(15)
