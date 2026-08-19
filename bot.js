@@ -23,7 +23,7 @@ bot.loadPlugin(pathfinder)
 
 bot.once('spawn', async () => {
   if (viewerPort) {
-    mineflayerViewer(bot, { port: viewerPort, firstPerson: true, viewDistance: 6 })
+    //mineflayerViewer(bot, { port: viewerPort, firstPerson: true, viewDistance: 6 })
     log('INFO', 'viewer', `listening on port ${viewerPort}`)
   }
 
