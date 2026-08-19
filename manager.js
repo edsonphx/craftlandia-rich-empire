@@ -163,8 +163,7 @@ const PROXY_LIST_FILE = path.join(BOT_DIR, 'proxylist.txt')
 
 function loadProxies() {
   try {
-    const content = fs.readFileSync(PROXY_LIST_FILE, 'utf8')
-    return content.split('\n').map(l => l.trim()).filter(Boolean)
+    return fs.readFileSync(PROXY_LIST_FILE, 'utf8').split('\n').map(l => l.trim()).filter(Boolean)
   } catch {
     return [] // file doesn't exist -> no proxies, bots connect directly
   }

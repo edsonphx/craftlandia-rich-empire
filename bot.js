@@ -47,13 +47,11 @@ if (proxyArg) {
       },
       command: 'connect',
       destination: { host: MC_HOST, port: MC_PORT }
-    }, (err, info) => {
-      if (err) {
-        log('ERROR', 'proxy', `connection failed: ${err.message}`)
-        return
-      }
-      client.setSocket(info.socket)
+    }).then(({ socket }) => {
+      client.setSocket(socket)
       client.emit('connect')
+    }).catch(err => {
+      log('ERROR', 'proxy', `connection failed: ${err.message}`)
     })
   }
 
