@@ -9,7 +9,7 @@ function log(level, module, message) {
 }
 
 const username = process.argv[2] || 'biru44zika'
-const viewerPort = parseInt(process.argv[3]) || null
+const viewerPort = null //parseInt(process.argv[3]) || null
 
 const bot = mineflayer.createBot({
   //host: 'localhost',
@@ -23,7 +23,7 @@ bot.loadPlugin(pathfinder)
 
 bot.once('spawn', async () => {
   if (viewerPort) {
-    //mineflayerViewer(bot, { port: viewerPort, firstPerson: true, viewDistance: 6 })
+    mineflayerViewer(bot, { port: viewerPort, firstPerson: true, viewDistance: 6 })
     log('INFO', 'viewer', `listening on port ${viewerPort}`)
   }
 
