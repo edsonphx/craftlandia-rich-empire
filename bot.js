@@ -35,6 +35,7 @@ bot.once('spawn', async () => {
   movements.allowSprinting = true
   movements.allow1by1towers = false
   movements.allowParkour = false
+  movements.allowCornerCutting = false
 
   for (const block of Object.values(bot.registry.blocksByName)) {
     if (block.name.includes('leaves')) {
