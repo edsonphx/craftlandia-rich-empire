@@ -137,19 +137,6 @@ async function buyFood(bot) {
   log('INFO', 'shop', 'food purchase complete')
 }
 
-async function chopTree(bot) {
-  const tree = locateNearestTree(bot)
-  if (!tree) {
-    log('WARN', 'chop', 'no tree found')
-    return
-  }
-
-  await goTo(bot, tree.position.x, tree.position.y, tree.position.z)
-  await bot.waitForTicks(13)
-
-  await breakTree(bot, tree.position.x, tree.position.y + 2, tree.position.z)
-}
-
 async function setHome(bot, name = "") {
   bot.chat('/sethome ' + name)
   await bot.waitForTicks(13)
