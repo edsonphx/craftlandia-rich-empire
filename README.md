@@ -2,8 +2,6 @@
 
 Mineflayer bots that farm wood on CraftLandia Olimpo (Minecraft 1.8.8) and sell it at `/warp loja`, plus a small web manager that starts, watches and restarts them.
 
-> ⚠️ Botting may be against the server's rules and can get accounts banned. Use at your own risk.
-
 ## Requirements
 
 - Node.js 18+ (tested on Node 24)
