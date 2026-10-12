@@ -169,9 +169,22 @@ function startBot(name) {
 
   const previous = bots[name]
   const viewerPort = assignViewerPort(previous)
-  const child = spawn('node', [BOT_SCRIPT, name, viewerPort], { cwd: BOT_DIR })
+  // 4o canal 'ipc': o bot manda estado/mapa por process.send, sem passar pelo stdin/stdout
+  const child = spawn('node', [BOT_SCRIPT, name, viewerPort], { cwd: BOT_DIR, stdio: ['pipe', 'pipe', 'pipe', 'ipc'] })
+
+  child.on('message', (msg) => {
+    const bot = bots[name]
+    if (!bot || bot.process !== child) return
+    if (msg.type === 'state') bot.state = msg.state
+    if (msg.type === 'map' && bot.mapRequests[msg.id]) {
+      bot.mapRequests[msg.id](msg.text)
+      delete bot.mapRequests[msg.id]
+    }
+  })
 
   bots[name] = {
+    state: null,
+    mapRequests: {},
     process: child,
     pid: child.pid,
     status: 'running',
@@ -257,14 +270,46 @@ function listBots() {
     pid: b.pid,
     status: b.status,
     job: b.job,
+    state: b.state,
     viewerPort: b.viewerPort
   }))
+}
+
+let nextMapId = 1
+function requestMap(name, radius) {
+  const bot = bots[name]
+  if (!bot || bot.status !== 'running') return Promise.resolve(null)
+
+  const id = nextMapId++
+  return new Promise((resolve) => {
+    bot.mapRequests[id] = resolve
+    bot.process.send({ type: 'map', id, radius })
+    setTimeout(() => {
+      if (bot.mapRequests[id]) {
+        delete bot.mapRequests[id]
+        resolve(null)
+      }
+    }, 5000)
+  })
 }
 
 // --- API ---
 
 app.get('/bots', (req, res) => {
   res.json(listBots())
+})
+
+app.get('/bots/:name/state', (req, res) => {
+  const bot = bots[req.params.name]
+  if (!bot) return res.status(404).json({ error: 'unknown bot' })
+  res.json({ status: bot.status, state: bot.state })
+})
+
+app.get('/bots/:name/map', async (req, res) => {
+  const radius = Math.min(parseInt(req.query.r) || 24, 64)
+  const text = await requestMap(req.params.name, radius)
+  if (text === null) return res.status(503).type('text').send('bot not running or no reply')
+  res.type('text').send(text + '\n')
 })
 
 app.post('/bots/:name/start', (req, res) => {
